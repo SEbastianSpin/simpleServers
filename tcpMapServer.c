@@ -1,10 +1,17 @@
+#define _GNU_SOURCE 
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <netdb.h>
+#include <fcntl.h>
 #define MAX 80
 #define PORT 8080
 #define SA struct sockaddr
@@ -20,36 +27,39 @@ int make_socket(int domain, int type){
 	return sock;
 }
 
-
+int add_new_client(int sfd){
+	int nfd;
+	if((nfd=TEMP_FAILURE_RETRY(accept(sfd,NULL,NULL)))<0) {
+		if(EAGAIN==errno||EWOULDBLOCK==errno) return -1;
+		ERR("accept");
+	}
+	printf("New connection \n");
+	return nfd;
+}
 
 // Function designed for chat between client and server.
-void func(int connfd)
-{
-	char buff[MAX];
-	int n;
-	// infinite loop for chat
-	for (;;) {
-		bzero(buff, MAX);
 
-		// read the message from client and copy it in buffer
-		read(connfd, buff, sizeof(buff));
-		// print buffer which contains the client contents
-		printf("From client: %s\t To client : ", buff);
-		bzero(buff, MAX);
-		n = 0;
-		// copy server message in the buffer
-		while ((buff[n++] = getchar()) != '\n')
-			;
+void doServer(int fdL){
+	int cfd,fdmax;
+	fd_set base_rfds, rfds ;
+	sigset_t mask, oldmask;
+	FD_ZERO(&base_rfds);
+	FD_SET(fdL, &base_rfds);
 
-		// and send that buffer to client
-		write(connfd, buff, sizeof(buff));
-
-		// if msg contains "Exit" then server exit and chat ended.
-		if (strncmp("exit", buff, 4) == 0) {
-			printf("Server Exit...\n");
-			break;
+	sigemptyset (&mask);
+	sigaddset (&mask, SIGINT);
+	sigprocmask (SIG_BLOCK, &mask, &oldmask);
+	while(1){
+		rfds=base_rfds;
+		if(pselect(fdL+1,&rfds,NULL,NULL,NULL,&oldmask)>0){
+			if(FD_ISSET(fdL,&rfds)) cfd=add_new_client(fdL);
+			
+		}else{
+			if(EINTR==errno) continue;
+			ERR("pselect");
 		}
 	}
+	sigprocmask (SIG_UNBLOCK, &mask, NULL);
 }
 
 void mapDisplayer(int size,int map[][size]){
@@ -87,18 +97,29 @@ int main(int argc, char** argv) {
     map[0][0]=8;
     mapDisplayer(mapsize,map);
 
-    sockfd=make_socket(PF_INET,SOCK_DGRAM);
+    sockfd=make_socket(AF_INET,SOCK_STREAM);
+	bzero(&servaddr, sizeof(servaddr));
 
     servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons(PORT);
+    int t=1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,&t, sizeof(t))) ERR("setsockopt");
+
+    if ((bind(sockfd, (SA*)&servaddr, sizeof(servaddr)))!=0)ERR("bind");
+	printf("Socket successfully binded..\n");
+
+    // Now server is ready to listen and verification
+	if ((listen(sockfd, numOfClients)) != 0)ERR("Listen");
+
+	
+    printf("Server listening..\n");
+    
 
 
-    if ((bind(sockfd, (SA*)&servaddr, sizeof(servaddr))) != 0) {
-		printf("socket bind failed...\n");
-		exit(0);
-	}
-	else
-		printf("Socket successfully binded..\n");
+	doServer(sockfd);
+
+
+    close(sockfd);
 
 }

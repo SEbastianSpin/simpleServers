@@ -1,18 +1,23 @@
-all: prog2 
+all: prog1 prog2
 
 prog1:
-	gcc -std=gnu99 -Wall -fsanitize=address,undefined  serverudp.c -lpthread -lm -lrt -o myserver
+	gcc -std=gnu99 -Wall -fsanitize=address,undefined  serverTcp.c -lpthread -lm -lrt -o myc
 
 prog2:
-	gcc -std=gnu99 -Wall -fsanitize=address,undefined  serverTcp.c -lpthread -lm -lrt -o myclient
+	gcc -std=gnu99 -Wall -fsanitize=address,undefined  tcpMapServer.c -lpthread -lm -lrt -o myMap
 
 matar:
 	killall -s SIGINT myserver
 mataruno:
-	pkill myserver
+	pkill myMap
 
 hablar:
-	nc -u 127.0.0.1 2000
+	nc -u 127.0.0.1 8080
+
+call:
+	telnet 127.0.0.1 8080
+checkCon:
+	nc -z -v -u 0.0.0.0 2000
 
 mostrarProcesos:
 	ps -e -f
