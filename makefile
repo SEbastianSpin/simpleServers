@@ -1,10 +1,10 @@
-all: prog1 
+all: prog2 
 
 prog1:
 	gcc -std=gnu99 -Wall -fsanitize=address,undefined  serverudp.c -lpthread -lm -lrt -o myserver
 
 prog2:
-	gcc -std=gnu99 -Wall -fsanitize=address,undefined  myclient.c -lpthread -lm -lrt -o myclient
+	gcc -std=gnu99 -Wall -fsanitize=address,undefined  serverTcp.c -lpthread -lm -lrt -o myclient
 
 matar:
 	killall -s SIGINT myserver
