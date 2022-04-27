@@ -1,117 +1,94 @@
-#define _GNU_SOURCE 
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/time.h>
-#include <netinet/in.h>
-#include <signal.h>
 #include <netdb.h>
-#include <fcntl.h>
-#define ERR(source) (perror(source),\
-		     fprintf(stderr,"%s:%d\n",__FILE__,__LINE__),\
-		     exit(EXIT_FAILURE))
-#define BACKLOG 3
-#define MAXBUF 576
-#define MAXADDR 5
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#define MAX 80
+#define PORT 8080
+#define SA struct sockaddr
 
+// Function designed for chat between client and server.
+void func(int connfd)
+{
+	char buff[MAX];
+	int n;
+	// infinite loop for chat
+	for (;;) {
+		bzero(buff, MAX);
 
-int sethandler( void (*f)(int), int sigNo) {
-	struct sigaction act;
-	memset(&act, 0, sizeof(struct sigaction));
-	act.sa_handler = f;
-	if (-1==sigaction(sigNo, &act, NULL))
-		return -1;
-	return 0;
-}
+		// read the message from client and copy it in buffer
+		read(connfd, buff, sizeof(buff));
+		// print buffer which contains the client contents
+		printf("From client: %s\t To client : ", buff);
+		bzero(buff, MAX);
+		n = 0;
+		// copy server message in the buffer
+		while ((buff[n++] = getchar()) != '\n')
+			;
 
+		// and send that buffer to client
+		write(connfd, buff, sizeof(buff));
 
-
-ssize_t bulk_read(int fd, char *buf, size_t count){
-	int c;
-	size_t len=0;
-	do{
-		c=TEMP_FAILURE_RETRY(read(fd,buf,count));
-		if(c<0) return c;
-		if(0==c) return len;
-		buf+=c;
-		len+=c;
-		count-=c;
-	}while(count>0);
-	return len ;
-}
-int add_new_client(int sfd){
-	int nfd;
-	if((nfd=TEMP_FAILURE_RETRY(accept(sfd,NULL,NULL)))<0) {
-		if(EAGAIN==errno||EWOULDBLOCK==errno) return -1;
-		ERR("accept");
-	}
-	return nfd;
-}
-
-void usage(char * name){
-	fprintf(stderr,"USAGE: %s port\n",name);
-}
-
-int main(int argc, char** argv) {
-	printf("Start\n");
-	
-	int fd;
-	if(sethandler(SIG_IGN,SIGPIPE)) ERR("Seting SIGPIPE:");
-
-    struct sockaddr_un addr;
-    
-    if(unlink(argv[1]) <0&&errno!=ENOENT) ERR("unlink");
-
-    if((fd = socket(PF_UNIX,SOCK_STREAM,0))<0) ERR("socket");
-	memset(&addr, 0, sizeof(struct sockaddr_un));
-	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path,argv[1],sizeof(addr.sun_path)-1);
-
-    if(bind(fd,(struct sockaddr*) &addr,SUN_LEN(&addr)) < 0)  ERR("bind");
-	if(listen(fd, BACKLOG) < 0) ERR("listen");
-	printf("Listening\n");
-
-    sigset_t mask, oldmask;
-    sigemptyset (&mask);
-	sigaddset (&mask, SIGINT);
-	sigprocmask (SIG_BLOCK, &mask, &oldmask);
-
-    fd_set base_rfds, rfds ;
-    FD_ZERO(&base_rfds);
-	FD_SET(fd, &base_rfds);
-
-    socklen_t size=sizeof(addr);;
-
-	int32_t data[5];
-
-    int cfd;
-
-	for(;;){
-    rfds=base_rfds;
-		if(pselect(fd+1,&rfds,NULL,NULL,NULL,&oldmask)>0){
-			if((cfd=add_new_client(fd))>=0){
-
-			if((size=bulk_read(cfd,(char *)data,sizeof(int32_t[5])))<0) ERR("read:");
-				if(size==(int)sizeof(int32_t[5])){
-					for(int c=0;c<5;c++){
-
-                        printf("%d",data[c]);
-                    }
-                    fflush(stdout); 
-
-				}
-				if(TEMP_FAILURE_RETRY(close(cfd))<0)ERR("close");
-		}else{
-			if(EINTR==errno) continue;
-			ERR("pselect");
+		// if msg contains "Exit" then server exit and chat ended.
+		if (strncmp("exit", buff, 4) == 0) {
+			printf("Server Exit...\n");
+			break;
 		}
-		
 	}
-
 }
+
+// Driver function
+int main()
+{
+	int sockfd, connfd, len;
+	struct sockaddr_in servaddr, cli;
+
+	// socket create and verification
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd == -1) {
+		printf("socket creation failed...\n");
+		exit(0);
+	}
+	else
+		printf("Socket successfully created..\n");
+	bzero(&servaddr, sizeof(servaddr));
+
+	// assign IP, PORT
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	servaddr.sin_port = htons(PORT);
+
+	// Binding newly created socket to given IP and verification
+	if ((bind(sockfd, (SA*)&servaddr, sizeof(servaddr))) != 0) {
+		printf("socket bind failed...\n");
+		exit(0);
+	}
+	else
+		printf("Socket successfully binded..\n");
+
+	// Now server is ready to listen and verification
+	if ((listen(sockfd, 5)) != 0) {
+		printf("Listen failed...\n");
+		exit(0);
+	}
+	else
+		printf("Server listening..\n");
+	len = sizeof(cli);
+
+	// Accept the data packet from client and verification
+	connfd = accept(sockfd, (SA*)&cli, &len);
+	if (connfd < 0) {
+		printf("server accept failed...\n");
+		exit(0);
+	}
+	else
+		printf("server accept the client...\n");
+
+	// Function for chatting between client and server
+	func(connfd);
+
+	// After chatting close the socket
+	close(sockfd);
 }
